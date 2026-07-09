@@ -28,7 +28,7 @@ struct DroppingCompletedToolCallsTests {
   }
 
   @Test func `keeps an incomplete tool-call exchange`() async throws {
-    let session = LanguageModelSession(profile: DropToolCallsProfile().model(toolCallingModel()))
+    let session = LanguageModelSession(profile: DropToolCallsProfile().FoundationModelsUtilities::model(toolCallingModel()))
 
     let _ = try await session.respond(to: "first")
 
@@ -46,7 +46,7 @@ struct DroppingCompletedToolCallsTests {
   }
 
   @Test func `drops the completed tool-call exchange once a new prompt arrives`() async throws {
-    let session = LanguageModelSession(profile: DropToolCallsProfile().model(toolCallingModel()))
+    let session = LanguageModelSession(profile: DropToolCallsProfile().FoundationModelsUtilities::model(toolCallingModel()))
 
     let _ = try await session.respond(to: "first")
     let _ = try await session.respond(to: "second")

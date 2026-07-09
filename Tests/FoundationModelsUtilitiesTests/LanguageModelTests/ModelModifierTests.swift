@@ -131,7 +131,7 @@ private struct BareProfile: LanguageModelSession.DynamicProfile {
     Profile {
       Instructions("You are a helpful assistant.")
     }
-    .model(model)
+    .FoundationModelsUtilities::model(model)
   }
 }
 
@@ -156,14 +156,14 @@ private struct SwitchingProfile: LanguageModelSession.DynamicProfile {
         EchoTool()
         SwitchProfileTool(counter: counter)
       }
-      .model(primaryModel)
+      .FoundationModelsUtilities::model(primaryModel)
     } else {
       Profile {
         Instructions("You are a helpful assistant 2.")
         EchoTool()
         SwitchProfileTool(counter: counter)
       }
-      .model(
+      .FoundationModelsUtilities::model(
         fallbackModel
       )
     }

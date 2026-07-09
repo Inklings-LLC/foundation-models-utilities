@@ -19,7 +19,7 @@ import Synchronization
 struct SkillsTests {
   @Test func `prompt skill activation`() async throws {
     let model = SkillsMockModel(activatingSkill: "foo")
-    let session = LanguageModelSession(profile: ActivatableProfile().model(model))
+    let session = LanguageModelSession(profile: ActivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let toolCalls = session.transcript.compactMap(\.toolCalls).first
     let toolOutput = session.transcript.compactMap(\.toolOutput).first
@@ -31,7 +31,7 @@ struct SkillsTests {
     // A prompt skill has no persistent active state, so the instructions list
     // it as on-demand whether or not the model has invoked it.
     let model = SkillsMockModel(activatingSkill: "foo")
-    let session = LanguageModelSession(profile: ActivatableProfile().model(model))
+    let session = LanguageModelSession(profile: ActivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let instructionsText = session.transcript.first?.instructions?
       .segments.compactMap(\.text).joined()
@@ -46,7 +46,7 @@ struct SkillsTests {
     let activations = SkillActivations()
     let model = SkillsMockModel(activatingSkill: "foo")
     let session = LanguageModelSession(
-      profile: ActivatableProfile(activations: activations).model(model)
+      profile: ActivatableProfile(activations: activations).FoundationModelsUtilities::model(model)
     )
     let _ = try await session.respond(to: "...")
     #expect(!activations.contains("foo"))
@@ -54,7 +54,7 @@ struct SkillsTests {
 
   @Test func `instructions skill activation reports activated`() async throws {
     let model = SkillsMockModel(activatingSkill: "bar")
-    let session = LanguageModelSession(profile: ActivatableProfile().model(model))
+    let session = LanguageModelSession(profile: ActivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let toolOutput = session.transcript.compactMap(\.toolOutput).first
     #expect(toolOutput?.segments.compactMap(\.text).joined() == "Successfully activated skill: bar")
@@ -62,7 +62,7 @@ struct SkillsTests {
 
   @Test func `instructions skill deactivation reports deactivated`() async throws {
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "baz")
-    let session = LanguageModelSession(profile: DeactivatableProfile().model(model))
+    let session = LanguageModelSession(profile: DeactivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")  // Activates skill
     let _ = try await session.respond(to: "...")  // Deactivates skill
     let toolOutputs = session.transcript.compactMap(\.toolOutput)
@@ -77,7 +77,7 @@ struct SkillsTests {
 
   @Test func `instructions skill activation`() async throws {
     let model = SkillsMockModel(activatingSkill: "bar")
-    let session = LanguageModelSession(profile: ActivatableProfile().model(model))
+    let session = LanguageModelSession(profile: ActivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let toolCalls = session.transcript.compactMap(\.toolCalls).first
     let instructions = session.transcript.first?.instructions
@@ -96,7 +96,7 @@ struct SkillsTests {
 
   @Test func `dynamic instructions builder skill activation`() async throws {
     let model = SkillsMockModel(activatingSkill: "qux")
-    let session = LanguageModelSession(profile: DynamicInstructionsBuilderProfile().model(model))
+    let session = LanguageModelSession(profile: DynamicInstructionsBuilderProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let transcript = session.transcript
     let toolCalls = transcript.compactMap(\.toolCalls).first
@@ -115,7 +115,7 @@ struct SkillsTests {
   @Test func `custom tool name is used`() async throws {
     let toolName = "use_skill"
     let model = SkillsMockModel(toolName: toolName, activatingSkill: "foo")
-    let profile = ActivatableProfile(toolName: toolName).model(model)
+    let profile = ActivatableProfile(toolName: toolName).FoundationModelsUtilities::model(model)
     let session = LanguageModelSession(profile: profile)
     let _ = try await session.respond(to: "...")
     let toolCalls = session.transcript.compactMap(\.toolCalls).first
@@ -124,7 +124,7 @@ struct SkillsTests {
 
   @Test func `default tool name is toggle_skill when deactivation allowed`() async throws {
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "baz")
-    let session = LanguageModelSession(profile: DeactivatableProfile().model(model))
+    let session = LanguageModelSession(profile: DeactivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     let toolCalls = session.transcript.compactMap(\.toolCalls).first
     #expect(toolCalls?.first?.toolName == "toggle_skill")
@@ -138,7 +138,7 @@ struct SkillsTests {
   {
     // allowsDeactivation == false, hasOnDemandSkill == false
     let model = SkillsMockModel(activatingSkill: "solo")
-    let session = LanguageModelSession(profile: ActivationOnlyProfile().model(model))
+    let session = LanguageModelSession(profile: ActivationOnlyProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     #expect(toggleToolDescription(session) == "Activates a skill.")
   }
@@ -146,7 +146,7 @@ struct SkillsTests {
   @Test func `default description mentions on demand skills when one is present`() async throws {
     // allowsDeactivation == false, hasOnDemandSkill == true
     let model = SkillsMockModel(activatingSkill: "bar")
-    let session = LanguageModelSession(profile: ActivatableProfile().model(model))
+    let session = LanguageModelSession(profile: ActivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     #expect(
       toggleToolDescription(session) == """
@@ -159,7 +159,7 @@ struct SkillsTests {
   @Test func `default description allows deactivation when a skill permits it`() async throws {
     // allowsDeactivation == true, hasOnDemandSkill == false
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "baz")
-    let session = LanguageModelSession(profile: DeactivatableProfile().model(model))
+    let session = LanguageModelSession(profile: DeactivatableProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     #expect(toggleToolDescription(session) == "Activate or deactivate a skill.")
   }
@@ -169,7 +169,7 @@ struct SkillsTests {
   {
     // allowsDeactivation == true, hasOnDemandSkill == true
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "toggle")
-    let session = LanguageModelSession(profile: OnDemandToggleProfile().model(model))
+    let session = LanguageModelSession(profile: OnDemandToggleProfile().FoundationModelsUtilities::model(model))
     let _ = try await session.respond(to: "...")
     #expect(
       toggleToolDescription(session) == """
@@ -182,7 +182,7 @@ struct SkillsTests {
   @Test func `custom tool description overrides the default`() async throws {
     let model = SkillsMockModel(activatingSkill: "solo")
     let session = LanguageModelSession(
-      profile: ActivationOnlyProfile(toolDescription: "Pick a skill to use.").model(model)
+      profile: ActivationOnlyProfile(toolDescription: "Pick a skill to use.").FoundationModelsUtilities::model(model)
     )
     let _ = try await session.respond(to: "...")
     #expect(toggleToolDescription(session) == "Pick a skill to use.")
@@ -192,7 +192,7 @@ struct SkillsTests {
     let activated = Mutex(false)
     let onActivate: @Sendable () -> Void = { activated.withLock({ $0 = true }) }
     let model = SkillsMockModel(activatingSkill: "foo")
-    let profile = ActivatableProfile(onActivate: { onActivate() }).model(model)
+    let profile = ActivatableProfile(onActivate: { onActivate() }).FoundationModelsUtilities::model(model)
     let session = LanguageModelSession(profile: profile)
     let _ = try await session.respond(to: "...")
     let didFire = activated.withLock({ $0 })
@@ -203,7 +203,7 @@ struct SkillsTests {
     let activated = Mutex(false)
     let onActivate: @Sendable () -> Void = { activated.withLock({ $0 = true }) }
     let model = SkillsMockModel(activatingSkill: "bar")
-    let profile = ActivatableProfile(onActivate: { onActivate() }).model(model)
+    let profile = ActivatableProfile(onActivate: { onActivate() }).FoundationModelsUtilities::model(model)
     let session = LanguageModelSession(profile: profile)
     let _ = try await session.respond(to: "...")
     let didFire = activated.withLock({ $0 })
@@ -214,7 +214,7 @@ struct SkillsTests {
     let activated = Mutex(true)
     let onDeactivate: @Sendable () -> Void = { activated.withLock({ $0 = false }) }
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "baz")
-    let profile = DeactivatableProfile(onDeactivate: { onDeactivate() }).model(model)
+    let profile = DeactivatableProfile(onDeactivate: { onDeactivate() }).FoundationModelsUtilities::model(model)
     let session = LanguageModelSession(profile: profile)
     let _ = try await session.respond(to: "...")  // Activates skill
     let _ = try await session.respond(to: "...")  // Deactivates skill
@@ -363,7 +363,7 @@ private func renderSkillsInstructions(
   @SkillsBuilder skills: () -> [Skill]
 ) async throws -> String? {
   let model = MockModel(textResponse: "ok", tokenCount: 1)
-  let profile = MultiSkillProfile(activations: activations, skills: skills()).model(model)
+  let profile = MultiSkillProfile(activations: activations, skills: skills()).FoundationModelsUtilities::model(model)
   let session = LanguageModelSession(profile: profile)
   let _ = try await session.respond(to: "...")
   return session.transcript.first?.instructions?.segments.compactMap(\.text).joined()

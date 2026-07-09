@@ -17,7 +17,7 @@ import Testing
 struct RollingWindowTests {
   @Test func `preserves entries when under limit`() async throws {
     let model = MockModel(textResponse: "OK", tokenCount: 1)
-    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 10).model(model))
+    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 10).FoundationModelsUtilities::model(model))
 
     let _ = try await session.respond(to: "first")
     let _ = try await session.respond(to: "second")
@@ -36,7 +36,7 @@ struct RollingWindowTests {
 
   @Test func `trims to the most recent entries`() async throws {
     let model = MockModel(textResponse: "OK", tokenCount: 1)
-    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 3).model(model))
+    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 3).FoundationModelsUtilities::model(model))
 
     let _ = try await session.respond(to: "first")
     let _ = try await session.respond(to: "second")
@@ -60,7 +60,7 @@ struct RollingWindowTests {
   @Test
   func `splits a prompt-response pair when the window is even`() async throws {
     let model = MockModel(textResponse: "OK", tokenCount: 1)
-    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 2).model(model))
+    let session = LanguageModelSession(profile: WindowedProfile(windowSize: 2).FoundationModelsUtilities::model(model))
 
     let _ = try await session.respond(to: "first")
     let _ = try await session.respond(to: "second")

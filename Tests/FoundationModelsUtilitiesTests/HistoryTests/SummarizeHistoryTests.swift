@@ -33,7 +33,7 @@ struct SummarizeHistoryTests {
     let session = LanguageModelSession(
       profile: LanguageModelSession.Profile {}
         .summarizeHistory(entryThreshold: 2, model: summarizer)
-        .model(mainModel)
+        .FoundationModelsUtilities::model(mainModel)
     )
 
     let _ = try await session.respond(to: "First topic.")
@@ -74,7 +74,7 @@ struct SummarizeHistoryTests {
           model: summarizer,
           summaryPostamble: "Continue the conversation naturally."
         )
-        .model(mainModel)
+        .FoundationModelsUtilities::model(mainModel)
     )
 
     let _ = try await session.respond(to: "First topic.")
@@ -105,7 +105,7 @@ struct SummarizeHistoryTests {
     let session = LanguageModelSession(
       profile: LanguageModelSession.Profile {}
         .summarizeHistory(entryThreshold: 2, model: summarizer, summaryPostamble: "")
-        .model(mainModel)
+        .FoundationModelsUtilities::model(mainModel)
     )
 
     let _ = try await session.respond(to: "First topic.")
@@ -140,7 +140,7 @@ struct SummarizeHistoryTests {
     let session = LanguageModelSession(
       profile: LanguageModelSession.Profile {}
         .summarizeHistory(entryThreshold: 10, model: summarizer)
-        .model(mainModel)
+        .FoundationModelsUtilities::model(mainModel)
     )
 
     let _ = try await session.respond(to: "first")
@@ -170,7 +170,7 @@ struct SummarizeHistoryTests {
         }
       }
       .summarizeHistory(entryThreshold: 2, model: summarizer)
-      .model(mainModel)
+      .FoundationModelsUtilities::model(mainModel)
     )
 
     let _ = try await session.respond(to: "first")
