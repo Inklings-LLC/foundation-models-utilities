@@ -351,6 +351,19 @@ struct SkillsTests {
         """
     )
   }
+
+  // MARK: - Degenerate schema
+
+  @Test func `empty skills collection does not trap building the tool schema`() async throws {
+    // Regression test: an empty skill list produced an empty `anyOf` guide
+    // for the toggle tool's schema. `GenerationSchema` construction is a
+    // throwing API and sat under a `try!`, so an SDK that rejects an empty
+    // choice list trapped here on every generation. The tool now falls back
+    // to an unconstrained string argument for its `skill` parameter, and a
+    // generation turn completes normally.
+    let instructionsText = try await renderSkillsInstructions { }
+    #expect((instructionsText ?? "").isEmpty)
+  }
 }
 
 // MARK: - Multi-skill rendering helpers
