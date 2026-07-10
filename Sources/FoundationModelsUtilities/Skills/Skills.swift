@@ -53,9 +53,19 @@ public import FoundationModels
 /// }
 /// ```
 public struct Skills: DynamicInstructions {
+  /// The default leading instructions rendered above the list of skills.
+  private static let defaultInstructions = Instructions {
+    """
+    If a skill below fits the user's request, silently activate it before \
+    responding. Otherwise, respond normally without calling tools.
+    """
+  }
+
   private let toolName: String?
 
   private let toolDescription: String?
+
+  private let instructions: Instructions
 
   private let skills: [Skill]
 
@@ -73,6 +83,8 @@ public struct Skills: DynamicInstructions {
   ///     whether any skill allows deactivation.
   ///   - toolDescription: A custom description for the tool exposed to the
   ///     model. When `nil`, a default description is generated.
+  ///   - instructions: The leading instructions rendered above the list of
+  ///     skills. When `nil`, a default instruction is used.
   ///   - strictSchema: When `true`, the tool schema only lists skills that
   ///     are valid targets for the current toggle direction, preventing the
   ///     model from deactivating already-inactive skills or vice versa.
@@ -82,6 +94,7 @@ public struct Skills: DynamicInstructions {
     activations: SkillActivations,
     toolName: String? = nil,
     toolDescription: String? = nil,
+    instructions: Instructions? = nil,
     strictSchema: Bool = false,
     @SkillsBuilder skills: () -> [Skill]
   ) {
@@ -89,6 +102,7 @@ public struct Skills: DynamicInstructions {
       activations: activations,
       toolName: toolName,
       toolDescription: toolDescription,
+      instructions: instructions,
       strictSchema: strictSchema,
       skills: skills()
     )
@@ -104,6 +118,8 @@ public struct Skills: DynamicInstructions {
   ///     whether any skill allows deactivation.
   ///   - toolDescription: A custom description for the tool exposed to the
   ///     model. When `nil`, a default description is generated.
+  ///   - instructions: The leading instructions rendered above the list of
+  ///     skills. When `nil`, a default instruction is used.
   ///   - strictSchema: When `true`, the tool schema only lists skills that
   ///     are valid targets for the current toggle direction, preventing the
   ///     model from deactivating already-inactive skills or vice versa.
@@ -112,12 +128,14 @@ public struct Skills: DynamicInstructions {
     activations: SkillActivations,
     toolName: String? = nil,
     toolDescription: String? = nil,
+    instructions: Instructions? = nil,
     strictSchema: Bool = false,
     skills: [Skill]
   ) {
     self.activations = activations
     self.toolName = toolName
     self.toolDescription = toolDescription
+    self.instructions = instructions ?? Skills.defaultInstructions
     self.skills = skills
     self.strictSchema = strictSchema
   }
@@ -126,25 +144,24 @@ public struct Skills: DynamicInstructions {
   /// provides the toggle tool to the model.
   public var body: some DynamicInstructions {
 
+    instructions
+
     DynamicInstructions.ForEach(Array(skills.enumerated()), id: \.element.name) { item in
-      // Each skill should have a newline between them
-      if item.offset > 0 {
-        Instructions {
-          "\n\n"
-        }
-      }
+      // Each skill is preceded by a blank line so the leading instruction and
+      // every skill block are visually separated.
       let skill = item.element
       if case .instructions(let stored) = skill.storage {
         // Instructions-based skills carry persistent state, so the model is
         // shown whether each one is currently active or inactive.
-        if activations.contains(skill.name) {
+        if activations.isActive(skill.name) {
           Instructions {
-            "Skill: \(skill.name) [active]\n"
+            "\nSkill: \(skill.name) [active]"
           }
           stored.instructions
         } else {
           Instructions {
-            "Skill: \(skill.name) [inactive]\nDescription: \(skill.description)"
+            "\nSkill: \(skill.name) [inactive]"
+            "Description: \(skill.description)"
           }
         }
       } else {
@@ -153,7 +170,8 @@ public struct Skills: DynamicInstructions {
         // as on-demand so the model isn't told they're "inactive" after it has
         // already invoked them.
         Instructions {
-          "Skill: \(skill.name) [on demand]\nDescription: \(skill.description)"
+          "\nSkill: \(skill.name) [on demand]"
+          "Description: \(skill.description)"
         }
       }
     }
@@ -171,7 +189,7 @@ public struct Skills: DynamicInstructions {
           // as active — there's no persistent state to toggle off later.
           skill.activate()
         case .instructions:
-          if activations.contains(skill.name) {
+          if activations.isActive(skill.name) {
             activations.deactivate(skill.name)
             skill.deactivate()
           } else {
@@ -207,7 +225,7 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
       return nil
     }).contains(where: \.allowsDeactivation)
 
-    let activeNames = Set(activations)
+    let activeNames = Set(activations.activeSkillNames)
 
     var allowed =
       skills
@@ -240,9 +258,11 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
       }
     let defaultDescription =
       if allowsDeactivation {
-        "Activate or deactivate a skill." + (onDemandExplanation.map { " \($0)" } ?? "")
+        "Activate or deactivate a skill yourself when the user's request matches its description, and otherwise respond normally without calling this tool. Don't ask the user for permission to activate, and don't mention activation in your response."
+          + (onDemandExplanation.map { " \($0)" } ?? "")
       } else {
-        "Activates a skill." + (onDemandExplanation.map { " \($0)" } ?? "")
+        "Activate a skill yourself when the user's request matches its description, and otherwise respond normally without calling this tool. Don't ask the user for permission to activate, and don't mention activation in your response."
+          + (onDemandExplanation.map { " \($0)" } ?? "")
       }
     let resolvedDescription = description ?? defaultDescription
 
@@ -292,7 +312,7 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
     case .prompt(let promptSkill):
       return promptSkill.prompt
     case .instructions:
-      let activated = activations.contains(skill.name)
+      let activated = activations.isActive(skill.name)
       let verb = activated ? "deactivated" : "activated"
       return Prompt { "Successfully \(verb) skill: \(skill.name)" }
     }
