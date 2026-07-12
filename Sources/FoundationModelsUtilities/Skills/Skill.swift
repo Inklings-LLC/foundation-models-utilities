@@ -132,7 +132,7 @@ public struct Skill {
     }
   }
 
-  /// Creates a prompt-based skill using a `PromptBuilder`
+  /// Creates a prompt-based skill using a `PromptBuilder`.
   public init(
     name: String,
     description: String,
@@ -188,7 +188,7 @@ public struct Skill {
     )
   }
 
-  /// Creates an instructions-based skill using a `DynamicInstructionsBuilder`
+  /// Creates an instructions-based skill using a `DynamicInstructionsBuilder`.
   ///
   /// Use this initializer to compose the skill's instructions declaratively.
   /// The closure may include [`Instructions`](https://developer.apple.com/documentation/FoundationModels/Instructions) content as well as [`Tool`](https://developer.apple.com/documentation/FoundationModels/Tool)

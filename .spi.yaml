@@ -1,0 +1,6 @@
+# This file is used to generate the docs for the Swift Package Index
+version: 2.0.0-beta-1
+builder:
+  configs:
+    - documentation_targets:
+        - FoundationModelsUtilities

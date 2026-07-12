@@ -86,7 +86,7 @@ struct MyProfile: LanguageModelSession.DynamicProfile {
       Instructions("A conversation between a user and a helpful assistant.")
       ToggleDarkModeTool()
     }
-    .summarizeHistory(threshold: 5000, model: summarizerModel)
+    .summarizeHistory(entryThreshold: 10, model: status.summarizerModel)
     .rollingWindow(entries: 10)
     .droppingCompletedToolCalls()
   }
@@ -102,7 +102,7 @@ The `Skills` type conforms to `DynamicInstructions` and is initialized using a r
 ```swift
 @Observable
 class Assistant {
-  let activations = SkillActivations()
+  var activations = SkillActivations()
 }
 
 struct MyProfile: LanguageModelSession.DynamicProfile {
@@ -134,8 +134,10 @@ struct MyProfile: LanguageModelSession.DynamicProfile {
         Skill(
           name: "calendaring",
           description: "Read and modify the user's calendar",
-          instructions: "Unless specified otherwise, all work meetings "
-            + "should start 5 minutes after the hour"
+          instructions: """
+            Unless specified otherwise, all work meetings
+            should start 5 minutes after the hour
+            """
         )
       }
     }
@@ -193,8 +195,10 @@ Instructions-based skills can optionally be deactivated by the model after activ
 Skill(
   name: "calendaring",
   description: "Read and modify the user's calendar",
-  instructions: "Unless specified otherwise, all work meetings "
-    + "should start 5 minutes after the hour",
+  instructions: """
+    Unless specified otherwise, all work meetings
+    should start 5 minutes after the hour
+    """,
   allowsDeactivation: true
 )
 ```

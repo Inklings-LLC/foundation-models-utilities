@@ -34,7 +34,7 @@ struct SkillsTests {
     let session = LanguageModelSession(profile: ActivatableProfile().model(model))
     let _ = try await session.respond(to: "...")
     let instructionsText = session.transcript.first?.instructions?
-      .segments.compactMap(\.text).joined()
+      .segments.compactMap(\.text).joined(separator: "\n")
     #expect(instructionsText?.contains("Skill: foo [on demand]") == true)
     #expect(instructionsText?.contains("foo [inactive]") == false)
     #expect(instructionsText?.contains("foo [active]") == false)
@@ -49,7 +49,7 @@ struct SkillsTests {
       profile: ActivatableProfile(activations: activations).model(model)
     )
     let _ = try await session.respond(to: "...")
-    #expect(!activations.contains("foo"))
+    #expect(!activations.isActive("foo"))
   }
 
   @Test func `instructions skill activation reports activated`() async throws {
@@ -82,9 +82,11 @@ struct SkillsTests {
     let toolCalls = session.transcript.compactMap(\.toolCalls).first
     let instructions = session.transcript.first?.instructions
     #expect(toolCalls?.first?.toolName == "activate_skill")
-    let instructionsText = instructions?.segments.compactMap(\.text).joined()
+    let instructionsText = instructions?.segments.compactMap(\.text).joined(separator: "\n")
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: foo [on demand]
         Description: foo description
 
@@ -102,9 +104,11 @@ struct SkillsTests {
     let toolCalls = transcript.compactMap(\.toolCalls).first
     let instructions = transcript.first?.instructions
     #expect(toolCalls?.first?.toolName == "activate_skill")
-    let instructionsText = instructions?.segments.compactMap(\.text).joined()
+    let instructionsText = instructions?.segments.compactMap(\.text).joined(separator: "\n")
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: qux [active]
         first line
         second line
@@ -140,7 +144,13 @@ struct SkillsTests {
     let model = SkillsMockModel(activatingSkill: "solo")
     let session = LanguageModelSession(profile: ActivationOnlyProfile().model(model))
     let _ = try await session.respond(to: "...")
-    #expect(toggleToolDescription(session) == "Activates a skill.")
+    #expect(
+      toggleToolDescription(session) == """
+        Activate a skill yourself when the user's request matches its description, \
+        and otherwise respond normally without calling this tool. Don't ask the \
+        user for permission to activate, and don't mention activation in your response.
+        """
+    )
   }
 
   @Test func `default description mentions on demand skills when one is present`() async throws {
@@ -150,7 +160,10 @@ struct SkillsTests {
     let _ = try await session.respond(to: "...")
     #expect(
       toggleToolDescription(session) == """
-        Activates a skill. Skills marked [on demand] aren't toggled on or off; \
+        Activate a skill yourself when the user's request matches its description, \
+        and otherwise respond normally without calling this tool. Don't ask the \
+        user for permission to activate, and don't mention activation in your response. \
+        Skills marked [on demand] aren't toggled on or off; \
         calling this tool on one delivers its guidance once.
         """
     )
@@ -161,7 +174,13 @@ struct SkillsTests {
     let model = SkillsMockModel(toolName: "toggle_skill", activatingSkill: "baz")
     let session = LanguageModelSession(profile: DeactivatableProfile().model(model))
     let _ = try await session.respond(to: "...")
-    #expect(toggleToolDescription(session) == "Activate or deactivate a skill.")
+    #expect(
+      toggleToolDescription(session) == """
+        Activate or deactivate a skill yourself when the user's request matches its \
+        description, and otherwise respond normally without calling this tool. Don't \
+        ask the user for permission to activate, and don't mention activation in your response.
+        """
+    )
   }
 
   @Test func `default description allows deactivation and mentions on demand when both present`()
@@ -173,7 +192,10 @@ struct SkillsTests {
     let _ = try await session.respond(to: "...")
     #expect(
       toggleToolDescription(session) == """
-        Activate or deactivate a skill. Skills marked [on demand] aren't toggled on or off; \
+        Activate or deactivate a skill yourself when the user's request matches its \
+        description, and otherwise respond normally without calling this tool. Don't \
+        ask the user for permission to activate, and don't mention activation in your response. \
+        Skills marked [on demand] aren't toggled on or off; \
         calling this tool on one delivers its guidance once.
         """
     )
@@ -186,6 +208,22 @@ struct SkillsTests {
     )
     let _ = try await session.respond(to: "...")
     #expect(toggleToolDescription(session) == "Pick a skill to use.")
+  }
+
+  @Test func `custom instructions override the default leading text`() async throws {
+    let instructionsText = try await renderSkillsInstructions(
+      instructions: Instructions("Custom lead-in for skills.")
+    ) {
+      Skill(name: "alpha", description: "alpha description", instructions: "alpha instructions")
+    }
+    #expect(
+      instructionsText == """
+        Custom lead-in for skills.
+
+        Skill: alpha [inactive]
+        Description: alpha description
+        """
+    )
   }
 
   @Test func `onActivate callback fires for prompt skill`() async throws {
@@ -231,6 +269,8 @@ struct SkillsTests {
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [inactive]
         Description: alpha description
 
@@ -247,6 +287,8 @@ struct SkillsTests {
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [on demand]
         Description: alpha description
 
@@ -268,6 +310,8 @@ struct SkillsTests {
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [active]
         alpha instructions
 
@@ -287,6 +331,8 @@ struct SkillsTests {
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [active]
         alpha instructions
 
@@ -303,16 +349,22 @@ struct SkillsTests {
     activations.activate("beta")
     let instructionsText = try await renderSkillsInstructions(activations: activations) {
       Skill(name: "alpha", description: "alpha description") {
-        Instructions("alpha line one\n")
-        Instructions("alpha line two")
+        Instructions {
+          "alpha line one"
+          "alpha line two"
+        }
       }
       Skill(name: "beta", description: "beta description") {
-        Instructions("beta line one\n")
-        Instructions("beta line two")
+        Instructions {
+          "beta line one"
+          "beta line two"
+        }
       }
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [active]
         alpha line one
         alpha line two
@@ -343,6 +395,8 @@ struct SkillsTests {
     }
     #expect(
       instructionsText == """
+        If a skill below fits the user's request, silently activate it before responding. Otherwise, respond normally without calling tools.
+
         Skill: alpha [active]
         alpha instructions
 
@@ -360,22 +414,28 @@ struct SkillsTests {
 /// instructions out of the transcript.
 private func renderSkillsInstructions(
   activations: SkillActivations = SkillActivations(),
+  instructions: Instructions? = nil,
   @SkillsBuilder skills: () -> [Skill]
 ) async throws -> String? {
   let model = MockModel(textResponse: "ok", tokenCount: 1)
-  let profile = MultiSkillProfile(activations: activations, skills: skills()).model(model)
+  let profile = MultiSkillProfile(
+    activations: activations,
+    instructions: instructions,
+    skills: skills()
+  ).model(model)
   let session = LanguageModelSession(profile: profile)
   let _ = try await session.respond(to: "...")
-  return session.transcript.first?.instructions?.segments.compactMap(\.text).joined()
+  return session.transcript.first?.instructions?.segments.compactMap(\.text).joined(separator: "\n")
 }
 
 private struct MultiSkillProfile: LanguageModelSession.DynamicProfile {
   let activations: SkillActivations
+  let instructions: Instructions?
   let skills: [Skill]
 
   var body: some DynamicProfile {
     Profile {
-      Skills(activations: activations, skills: skills)
+      Skills(activations: activations, instructions: instructions, skills: skills)
     }
   }
 }
@@ -467,8 +527,10 @@ private struct DynamicInstructionsBuilderProfile: LanguageModelSession.DynamicPr
     Profile {
       Skills(activations: activations) {
         Skill(name: "qux", description: "qux description") {
-          Instructions("first line\n")
-          Instructions("second line")
+          Instructions {
+            "first line"
+            "second line"
+          }
         }
       }
     }
