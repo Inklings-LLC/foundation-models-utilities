@@ -240,6 +240,7 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
         temperature: request.generationOptions.temperature,
         topP: try request.generationOptions.samplingMode.map(topP),
         maxCompletionTokens: request.generationOptions.maximumResponseTokens,
+        reasoningEffort: reasoningEffort(request.contextOptions.reasoningLevel),
         tools: request.enabledToolDefinitions.map { tool in
           ChatCompletionsClient.Tool(
             function: ChatCompletionsClient.Tool.Function(
@@ -384,6 +385,25 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
         throw ChatCompletionsLanguageModel.RequestError.invalidRequest(
           "Unknown sampling mode \(sampling.kind) is not supported"
         )
+      }
+    }
+
+    private func reasoningEffort(
+      _ level: ContextOptions.ReasoningLevel?
+    ) -> String? {
+      switch level {
+      case .light:
+        "low"
+      case .moderate:
+        "medium"
+      case .deep:
+        "high"
+      case .custom(let value):
+        value
+      case nil:
+        nil
+      @unknown default:
+        nil
       }
     }
 
@@ -701,6 +721,7 @@ private struct ChatCompletionsClient {
     var temperature: Double?
     var topP: Double?
     var maxCompletionTokens: Int?
+    var reasoningEffort: String?
     var tools: [Tool]?
     var toolChoice: ChatCompletionRequest.ToolChoice?
     var responseFormat: ResponseFormat?
@@ -721,6 +742,7 @@ private struct ChatCompletionsClient {
       case temperature
       case topP = "top_p"
       case maxCompletionTokens = "max_completion_tokens"
+      case reasoningEffort = "reasoning_effort"
       case tools
       case responseFormat = "response_format"
       case stream
