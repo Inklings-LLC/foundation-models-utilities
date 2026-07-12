@@ -43,6 +43,7 @@ extension ChatCompletionsTests {
 
       for (level, expectedEffort) in cases {
         MockSSEProtocol.reset()
+        MockSSEProtocol.handler = { _ in (200, MockSSE.text("OK")) }
         let session = LanguageModelSession(model: makeMockModel())
         let _ = try await session.respond(
           to: "test",
@@ -55,6 +56,7 @@ extension ChatCompletionsTests {
     }
 
     @Test func `omits reasoning effort when no level is requested`() async throws {
+      MockSSEProtocol.handler = { _ in (200, MockSSE.text("OK")) }
       let session = LanguageModelSession(model: makeMockModel())
       let _ = try await session.respond(to: "test")
 
