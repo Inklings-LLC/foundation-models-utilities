@@ -369,10 +369,6 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
       case .greedy:
         return 0
 
-      // TEMP (Inklings, 2026-07-07): the pinned upstream was written against a
-      // newer FoundationModels naming (.top / .nucleus); the installed Xcode
-      // 27 beta 2 SDK spells these randomTopK / randomProbabilityThreshold.
-      // Rename-only patch — REVERT to upstream when Xcode beta 3 lands.
       case .randomTopK:
         throw ChatCompletionsLanguageModel.RequestError.invalidRequest(
           "Top K sampling is not supported"
