@@ -33,6 +33,37 @@ extension ChatCompletionsTests {
       }
     }
 
+    @Test func `maps framework reasoning levels to OpenAI effort`() async throws {
+      let cases: [(ContextOptions.ReasoningLevel, String)] = [
+        (.light, "low"),
+        (.moderate, "medium"),
+        (.deep, "high"),
+        (.custom("xhigh"), "xhigh")
+      ]
+
+      for (level, expectedEffort) in cases {
+        MockSSEProtocol.reset()
+        MockSSEProtocol.handler = { _ in (200, MockSSE.text("OK")) }
+        let session = LanguageModelSession(model: makeMockModel())
+        let _ = try await session.respond(
+          to: "test",
+          contextOptions: ContextOptions(reasoningLevel: level)
+        )
+
+        let body = try requestBody()
+        #expect(body["reasoning_effort"] as? String == expectedEffort)
+      }
+    }
+
+    @Test func `omits reasoning effort when no level is requested`() async throws {
+      MockSSEProtocol.handler = { _ in (200, MockSSE.text("OK")) }
+      let session = LanguageModelSession(model: makeMockModel())
+      let _ = try await session.respond(to: "test")
+
+      let body = try requestBody()
+      #expect(body["reasoning_effort"] == nil)
+    }
+
     @Test func `forwards reasoning_content as a reasoning transcript entry`() async throws {
       MockSSEProtocol.handler = { _ in
         (

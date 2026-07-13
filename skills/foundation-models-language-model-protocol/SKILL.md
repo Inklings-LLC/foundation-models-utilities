@@ -103,7 +103,7 @@ public struct MyLanguageModel: Sendable {
 
 extension MyLanguageModel: LanguageModel {
   public var capabilities: LanguageModelCapabilities {
-    LanguageModelCapabilities(capabilities: [
+    LanguageModelCapabilities([
       .toolCalling,
       .vision,
       .reasoning,
@@ -203,10 +203,11 @@ extension MyLanguageModel {
             )
           )
 
-        case .toolCallRetracted(let id):
+        case .toolCallRetracted(let toolCall):
           // Drop a tool call the model started streaming and then retracted.
+          // `removeToolCall` takes the `Transcript.ToolCall` to drop.
           await channel.send(
-            .toolCalls(entryID: toolCallsEntryID, action: .removeToolCall(id: id))
+            .toolCalls(entryID: toolCallsEntryID, action: .removeToolCall(toolCall))
           )
 
         case .reasoningDelta(let text):
@@ -282,6 +283,30 @@ public struct LanguageModelExecutorGenerationRequest: Sendable {
 | `contextOptions` | Prompting controls: `includeSchemaInPrompt`, `reasoningLevel`. | Use `reasoningLevel` to set your provider's thinking-budget knob. `includeSchemaInPrompt` tells you whether to inline the JSON schema into the system prompt. |
 | `metadata` | Developer-provided dictionary passed at the call site. | Forward to your provider's metadata field for analytics, or define well-known keys for an escape hatch (e.g. a `passthrough` key for forwarding raw provider-specific options). |
 
+### Inspecting option types
+
+Several framework option types are enum-like structs you can *construct* but historically couldn't *read*. To let executors translate them, there is now a `kind` property on each. Switch on `kind` to map the value onto your provider's parameters.
+
+```swift
+// generationOptions.samplingMode — translate to your provider's sampling knobs.
+if let mode = request.generationOptions.samplingMode {
+  switch mode.kind {
+  case .greedy:
+    providerRequest.temperature = 0 // deterministic
+  case .randomTopK(let k, let seed):
+    providerRequest.topK = k
+    providerRequest.seed = seed
+  case .randomProbabilityThreshold(let p, let seed):
+    providerRequest.topP = p
+    providerRequest.seed = seed
+  }
+}
+```
+
+The same `kind`-based inspection applies to `Transcript.ResponseFormat` (`.schema(GenerationSchema)`) when you walk transcript entries. And `Transcript.ToolDefinition.parameters` is a `GenerationSchema` — see the note below on serializing it.
+
+> `GenerationSchema` conforms to `Codable` and encodes to standard [JSON Schema](https://json-schema.org). Both `request.schema` and each `ToolDefinition.parameters` are `GenerationSchema` values, so for most server providers you can hand them straight to a `JSONEncoder` and drop the result into your structured-output / function-parameters field — no manual schema translation needed.
+
 ## Capabilities
 
 Declare what your model can do. Don't declare a capability you don't fully support — the framework throws `unsupportedCapability` for the developer when they request a capability you didn't list.
@@ -335,7 +360,7 @@ Events are sent on `LanguageModelExecutorGenerationChannel` via `await channel.s
 | `.replaceTextSegment(_:segmentID:tokenCount:)` | Whole-segment replacement when your provider sends a final corrected version. |
 | `.updateCustomSegment(_:)` | A value conforming to the `Transcript.CustomSegment` protocol — provider-specific structured payloads. See "Custom segments" below. |
 | `.addAttachmentSegment(_:)` | Add a `Transcript.AttachmentSegment` (currently image content) to the response. Use this when your model emits non-text output inline — e.g. a generated diagram, edited image, or visual artifact. Each call ADDS a new segment; pass a stable `id` if you'll later remove it. See "Attachment segments" below. |
-| `.removeAttachmentSegment(id:)` | Remove a previously-added attachment by `id`. Symmetric to `.removeToolCall(id:)` — use when the model retracts an attachment mid-stream, or as the first half of a remove-then-add replacement. |
+| `.removeAttachmentSegment(_:)` | Remove a previously-added attachment by passing the `Transcript.AttachmentSegment` to drop. Symmetric to `.removeToolCall(_:)` — use when the model retracts an attachment mid-stream, or as the first half of a remove-then-add replacement. |
 | `.updateMetadata(_:)` | Wholesale snapshot of entry metadata. Re-emit every key on every event. |
 | `.updateUsage(input:output:)` | Cumulative running totals. Each event REPLACES prior totals (does not add). Authoritative. |
 
@@ -362,7 +387,7 @@ Use a DIFFERENT `entryID` from your response entry — they live in different tr
 | Outer action | When to use |
 |---|---|
 | `.toolCall(id:name:action:)` | Wraps a per-call event. `id` selects (or opens) the tool call; `name` carries the function name on every event for that id; `action` names the mutation (see inner table). |
-| `.removeToolCall(id:)` | Drop a tool call the model streamed and then retracted. |
+| `.removeToolCall(_:)` | Drop a tool call the model streamed and then retracted. Pass the `Transcript.ToolCall` to remove. |
 | `.updateMetadata(_:)` | Entry-level metadata snapshot. Prefer per-call metadata via `.toolCall(..., .updateMetadata(...))` for values that belong to one specific call. |
 | `.updateUsage(input:output:)` | Usage totals. Cumulative, not additive — each event REPLACES prior totals. |
 
@@ -454,15 +479,15 @@ await channel.send(
 
 | Field | Notes |
 |---|---|
-| `id` | Stable identifier for this attachment within the response. Mint a UUID. Required again — same value — if you later send `.removeAttachmentSegment(id:)`. |
+| `id` | Stable identifier for this attachment within the response. Mint a UUID. Keep the `AttachmentSegment` around (or rebuild one with the same `id`) if you later need to `.removeAttachmentSegment(_:)`. |
 | `content` | A `Transcript.Attachment` enum — currently `.image(ImageAttachment)`. Build the `ImageAttachment` from a `CGImage`, `CIImage`, `CVPixelBuffer`, or a `URL`. |
 | `label` | Optional human-readable label (e.g. caption or alt-text). |
 
-To retract or supersede an attachment, send `.removeAttachmentSegment(id:)`:
+To retract or supersede an attachment, send `.removeAttachmentSegment(_:)` with the segment to drop:
 
 ```swift
 await channel.send(
-  .response(entryID: responseEntryID, action: .removeAttachmentSegment(id: imageID))
+  .response(entryID: responseEntryID, action: .removeAttachmentSegment(attachment))
 )
 ```
 
@@ -505,13 +530,13 @@ Patterns repeat across providers:
 | Text delta in assistant message | `.response(.appendText)` |
 | Tool/function call open + first args chunk | `.toolCalls(.toolCall(id:name:action: .appendArguments(...)))` (first event for a new id opens the call) |
 | Tool/function call args delta | `.toolCalls(.toolCall(id:name:action: .appendArguments(...)))` (same id and name as the open event) |
-| Tool/function call retracted mid-stream | `.toolCalls(.removeToolCall(id:))` |
+| Tool/function call retracted mid-stream | `.toolCalls(.removeToolCall(_:))` |
 | Per-call metadata (e.g. a provider-supplied call tag) | `.toolCalls(.toolCall(id:name:action: .updateMetadata(...)))` — emit BEFORE the first `.appendArguments` for the id |
 | Reasoning / thinking text delta | `.reasoning(entryID: …, action: .appendText(...))` — pass `entryID: nil` to coalesce consecutive deltas, or a stable id to anchor a specific entry |
 | Reasoning text superseded by a finalized version | `.reasoning(entryID: …, action: .replaceTextSegment(...))` |
 | Reasoning signature bytes | `.reasoning(entryID: …, action: .updateSignature(Data, tokenCount:))` — opaque bytes, replaces wholesale |
 | Inline image output (model-generated image / diagram / edited asset) | `.response(.addAttachmentSegment(Transcript.AttachmentSegment(content: .image(...))))` |
-| Image output retracted or superseded | `.response(.removeAttachmentSegment(id:))` — followed by a fresh `addAttachmentSegment` to replace |
+| Image output retracted or superseded | `.response(.removeAttachmentSegment(_:))` — followed by a fresh `addAttachmentSegment` to replace |
 | Token usage report | `.response(.updateUsage)` — or `.reasoning(.updateUsage)` / `.toolCalls(.updateUsage)` if your provider scopes usage to that entry |
 | Asset / model metadata | `.response(.updateMetadata)` |
 
@@ -524,7 +549,7 @@ Throw typed `LanguageModelError` cases so the framework can surface user-friendl
 | `.contextSizeExceeded(ContextSizeExceeded)` | `contextSize: Int`, `tokenCount: Int` | The transcript would exceed the model's context window. The developer can recover by trimming entries and retrying. |
 | `.rateLimited(RateLimited)` | `resetDate: Date?` | Provider returned 429 / a burst-throttling signal. Include `resetDate` when the provider tells you when retries will succeed. |
 | `.guardrailViolation(GuardrailViolation)` | — | Provider's safety system flagged the prompt or the response. |
-| `.refusal(Refusal)` | — | Model declined to answer for non-safety reasons (e.g. asked for something out of scope). |
+| `.refusal(Refusal)` | `explanation: String` (required by the public initializer) | Model declined to answer for non-safety reasons (e.g. asked for something out of scope). Surfaced to the developer via `refusal.explanation` / `refusal.explanationStream`. |
 | `.unsupportedCapability(UnsupportedCapability)` | `capability: LanguageModelCapabilities.Capability` | A capability you didn't declare was requested. The framework throws this for you when you under-declare — only throw it manually when your provider rejects a capability mid-stream. |
 | `.unsupportedTranscriptContent(UnsupportedTranscriptContent)` | `unsupportedContent: [Transcript.Entry]` | The transcript contains content the model can't process — unsupported file types, corrupted data, or a custom segment your provider doesn't recognize. |
 | `.unsupportedGenerationGuide(UnsupportedGenerationGuide)` | `schemaName: String?` | The generation schema uses a guide your provider doesn't support (e.g. an exotic regex pattern). |
@@ -553,10 +578,6 @@ throw LanguageModelError.rateLimited(
 
 throw LanguageModelError.guardrailViolation(
   LanguageModelError.GuardrailViolation(debugDescription: "Provider reported unsafe content")
-)
-
-throw LanguageModelError.refusal(
-  LanguageModelError.Refusal(debugDescription: "Model declined to answer")
 )
 
 throw LanguageModelError.unsupportedCapability(
@@ -669,8 +690,9 @@ import PackageDescription
 let package = Package(
   name: "MyLanguageModel",
   platforms: [
-    // Set the minimum platforms appropriate for the Foundation Models APIs
-    // your language model depends on.
+    // The LanguageModel / LanguageModelExecutor protocols are available on
+    // iOS 27, macOS 27, visionOS 27, and watchOS 27. Set your minimums at or
+    // above those, plus whatever your transport/auth dependencies require.
   ],
   products: [
     .library(name: "MyLanguageModel", targets: ["MyLanguageModel"]),
@@ -783,8 +805,8 @@ What to cover end-to-end:
 - **`updateMetadata` are wholesale snapshots.** A subsequent event with fewer items REMOVES the missing ones. Re-emit everything you want preserved.
 - **Every `.toolCall(id:name:action:)` event must carry the function `name`** — not just the opener. Subsequent events for the same `id` should pass the same `name`.
 - **Emit per-call metadata BEFORE the first `.appendArguments` for that id.** This ensures the metadata is attached to the call the moment it's first written rather than arriving after the fact.
-- **Use `.removeToolCall(id:)` when the model retracts a streamed tool call** rather than trying to mutate prior argument deltas — there is no `replaceArguments` equivalent for tool calls.
-- **Attachments add, they don't replace.** `.addAttachmentSegment` always adds a new segment. To supersede a streamed attachment, send `.removeAttachmentSegment(id:)` followed by a fresh `.addAttachmentSegment(...)` — there is no `replaceAttachmentSegment`.
+- **Use `.removeToolCall(_:)` when the model retracts a streamed tool call** rather than trying to mutate prior argument deltas — there is no `replaceArguments` equivalent for tool calls.
+- **Attachments add, they don't replace.** `.addAttachmentSegment` always adds a new segment. To supersede a streamed attachment, send `.removeAttachmentSegment(_:)` followed by a fresh `.addAttachmentSegment(...)` — there is no `replaceAttachmentSegment`.
 - **Don't try to "fix up" prior text via mutation.** Use `replaceTextSegment` if your provider sends a final corrected version.
 - **Reasoning signatures are opaque bytes.** Don't UTF-8 decode them assuming text; pass them through as `Data`.
 - **Pick an `entryID` strategy for reasoning and stick to it.** Passing `nil` coalesces consecutive deltas into the trailing reasoning entry — fine for one-thought-block flows. But if you alternate `nil` and explicit ids, or interleave reasoning with a non-reasoning event in between, you can split a single thought across two transcript entries unintentionally. When in doubt, anchor with a stable id you mint yourself.

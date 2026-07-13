@@ -51,7 +51,6 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
   /// vendor-specific headers.
   public var additionalHeaders: [String: String]
 
-  // Implementation of LanguageModel Protocol
   public var supportsGuidedGeneration: Bool
 
   // Overridden in tests to inject a URLSession with mock protocol handlers.
@@ -67,29 +66,33 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
   ///     (for example, an `Authorization` header).
   ///   - supportsGuidedGeneration: Whether the endpoint supports the
   ///     `response_format` field for structured output. Defaults to `true`.
+  ///   - urlSessionConfiguration: An optional `URLSessionConfiguration` used
+  ///     to build the `URLSession` that drives requests. Use this to tune
+  ///     timeouts, proxies, or other transport settings. When `nil`, an
+  ///     ephemeral configuration is used.
   public init(
     name: String,
     url: URL,
     additionalHeaders: [String: String] = [:],
-    supportsGuidedGeneration: Bool = true
+    supportsGuidedGeneration: Bool = true,
+    urlSessionConfiguration: URLSessionConfiguration? = nil
   ) {
     self.name = name
     self.url = url
     self.additionalHeaders = additionalHeaders
     self.supportsGuidedGeneration = supportsGuidedGeneration
+    self.urlSession = urlSessionConfiguration.map { URLSession(configuration: $0) }
   }
 
   // Implementation of LanguageModel Protocol
   public var capabilities: LanguageModelCapabilities {
     if supportsGuidedGeneration {
-      LanguageModelCapabilities(capabilities: [.vision, .toolCalling, .reasoning, .guidedGeneration]
-      )
+      LanguageModelCapabilities([.vision, .toolCalling, .reasoning, .guidedGeneration])
     } else {
-      LanguageModelCapabilities(capabilities: [.vision, .toolCalling, .reasoning])
+      LanguageModelCapabilities([.vision, .toolCalling, .reasoning])
     }
   }
 
-  // Implementation of LanguageModel Protocol
   public var executorConfiguration: Executor.Configuration {
     Executor.Configuration(
       modelName: name,
@@ -181,7 +184,6 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
     }
   }
 
-  // Implementation for LanguageModel Protocol
   public struct Executor: LanguageModelExecutor {
     public typealias Model = ChatCompletionsLanguageModel
     private let configuration: Configuration
@@ -209,7 +211,6 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
       }
     }
 
-    // Implementation for LanguageModel Protocol
     public func respond(
       to request: LanguageModelExecutorGenerationRequest,
       model: ChatCompletionsLanguageModel,
@@ -240,6 +241,7 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
         temperature: request.generationOptions.temperature,
         topP: try request.generationOptions.samplingMode.map(topP),
         maxCompletionTokens: request.generationOptions.maximumResponseTokens,
+        reasoningEffort: reasoningEffort(request.contextOptions.reasoningLevel),
         tools: request.enabledToolDefinitions.map { tool in
           ChatCompletionsClient.Tool(
             function: ChatCompletionsClient.Tool.Function(
@@ -251,19 +253,18 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
         },
         toolChoice: ChatCompletionsClient.ChatCompletionRequest.ToolChoice(
           mode: {
-            // Map the framework's tool-calling mode onto the API's vocabulary.
-            switch request.generationOptions.toolCallingMode {
+            switch request.generationOptions.toolCallingMode?.kind {
             case .allowed, .none: .auto
             case .required: .required
             case .disallowed: .none
-            default: .auto
+            @unknown default: .auto
             }
           }()
         ),
         responseFormat: request.schema.map { schema in
           ChatCompletionsClient.ResponseFormat(
             jsonSchema: ChatCompletionsClient.ResponseFormat.JSONSchemaWrapper(
-              name: schema.title,
+              name: schema.name,
               schema: schema
             )
           )
@@ -387,6 +388,25 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
       }
     }
 
+    private func reasoningEffort(
+      _ level: ContextOptions.ReasoningLevel?
+    ) -> String? {
+      switch level {
+      case .light:
+        "low"
+      case .moderate:
+        "medium"
+      case .deep:
+        "high"
+      case .custom(let value):
+        value
+      case nil:
+        nil
+      @unknown default:
+        nil
+      }
+    }
+
     private func convertedTranscript(
       _ entries: some Collection<Transcript.Entry>
     ) throws -> [ChatCompletionsClient.ChatMessage] {
@@ -420,11 +440,19 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
             let imageURL = ChatCompletionsClient.MessageContent.ImageURL(url: dataURL)
             return [ChatCompletionsClient.MessageContent(imageURL: imageURL)]
             #else
+            guard let url = image.url else {
+              throw LanguageModelError.unsupportedTranscriptContent(
+                LanguageModelError.UnsupportedTranscriptContent(
+                  unsupportedContent: [entry],
+                  debugDescription: "Image attachment without a URL is not supported by \(Self.self) on this platform."
+                )
+              )
+            }
             let dataURL: URL
-            if image.url.scheme == "data" {
-              dataURL = image.url
+            if url.scheme == "data" {
+              dataURL = url
             } else {
-              let data = try Data(contentsOf: image.url)
+              let data = try Data(contentsOf: url)
               let base64String = data.base64EncodedString()
               dataURL = URL(string: "data:image/jpeg;base64,\(base64String)")!
             }
@@ -701,6 +729,7 @@ private struct ChatCompletionsClient {
     var temperature: Double?
     var topP: Double?
     var maxCompletionTokens: Int?
+    var reasoningEffort: String?
     var tools: [Tool]?
     var toolChoice: ChatCompletionRequest.ToolChoice?
     var responseFormat: ResponseFormat?
@@ -721,6 +750,7 @@ private struct ChatCompletionsClient {
       case temperature
       case topP = "top_p"
       case maxCompletionTokens = "max_completion_tokens"
+      case reasoningEffort = "reasoning_effort"
       case tools
       case responseFormat = "response_format"
       case stream
@@ -942,21 +972,3 @@ private extension CGImage {
   }
 }
 #endif
-
-private extension GenerationSchema {
-  var title: String {
-    let schema = try! JSONEncoder().encode(self)
-    let dictionary =
-      try! JSONSerialization.jsonObject(
-        with: schema,
-        options: []
-      ) as! [String: Any]
-    if let title = dictionary["title"] as? String {
-      return title
-    }
-    if let type = dictionary["type"] as? String {
-      return type
-    }
-    return "Response"
-  }
-}
