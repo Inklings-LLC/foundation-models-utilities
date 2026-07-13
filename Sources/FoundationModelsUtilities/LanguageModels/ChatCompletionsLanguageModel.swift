@@ -611,7 +611,7 @@ private struct ChatCompletionsClient {
           guard httpResponse.statusCode == 200 else {
             throw ChatCompletionsLanguageModel.RequestError.httpError(
               statusCode: httpResponse.statusCode,
-              data: try await stream.reduce(Data(), { $0 + [$1] })
+              data: try await stream.reduce(into: Data()) { $0.append($1) }
             )
           }
 

@@ -266,6 +266,15 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
       }
     let resolvedDescription = description ?? defaultDescription
 
+    // An empty `anyOf` guide makes `GenerationSchema` construction throw,
+    // which would trap the `try!` below. When no skill name is currently
+    // allowed (no skills at all, or a strict schema where every skill is
+    // active and none allows deactivation), fall back to an unconstrained
+    // string argument; `call(arguments:)` already rejects names that don't
+    // match a skill with a descriptive error.
+    let skillNameGuides: [GenerationGuide<String>] =
+      allowed.isEmpty ? [] : [.anyOf(allowed)]
+
     let parameters = try! GenerationSchema(
       root: DynamicGenerationSchema(
         name: "Arguments",
@@ -274,7 +283,7 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
             name: "skill",
             schema: DynamicGenerationSchema(
               type: String.self,
-              guides: [.anyOf(allowed)]
+              guides: skillNameGuides
             ),
           )
         ]
