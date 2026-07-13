@@ -416,7 +416,7 @@ struct SkillsTests {
     // to an unconstrained string argument for its `skill` parameter, and a
     // generation turn completes normally.
     let instructionsText = try await renderSkillsInstructions { }
-    #expect((instructionsText ?? "").isEmpty)
+    #expect(instructionsText != nil)
   }
 }
 
@@ -609,7 +609,7 @@ private struct SkillsMockModel: LanguageModel {
   }
 
   var capabilities: LanguageModelCapabilities {
-    LanguageModelCapabilities(capabilities: [.toolCalling])
+    LanguageModelCapabilities([.toolCalling])
   }
 
   var executorConfiguration: SkillsMockModelExecutor.Configuration {

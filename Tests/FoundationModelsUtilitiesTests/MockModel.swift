@@ -28,7 +28,7 @@ struct MockModel: LanguageModel {
   let tokenCount: Int
 
   var capabilities: LanguageModelCapabilities {
-    LanguageModelCapabilities(capabilities: [.toolCalling])
+    LanguageModelCapabilities([.toolCalling])
   }
 
   var executorConfiguration: MockModelExecutor.Configuration {
