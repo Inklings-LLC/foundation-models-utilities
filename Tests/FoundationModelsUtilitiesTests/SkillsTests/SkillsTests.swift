@@ -75,6 +75,27 @@ struct SkillsTests {
     )
   }
 
+  @Test func `instructions skill cannot be deactivated unless it allows deactivation`() async throws
+  {
+    let activations = SkillActivations()
+    let model = SkillsMockModel(activatingSkill: "bar")
+    let session = LanguageModelSession(
+      profile: ActivatableProfile(activations: activations).model(model)
+    )
+    let _ = try await session.respond(to: "...")
+    #expect(activations.isActive("bar"))
+
+    var rejectedDeactivation = false
+    do {
+      let _ = try await session.respond(to: "...")
+    } catch {
+      rejectedDeactivation = true
+    }
+
+    #expect(rejectedDeactivation)
+    #expect(activations.isActive("bar"))
+  }
+
   @Test func `instructions skill activation`() async throws {
     let model = SkillsMockModel(activatingSkill: "bar")
     let session = LanguageModelSession(profile: ActivatableProfile().model(model))
@@ -406,6 +427,62 @@ struct SkillsTests {
     )
   }
 
+  @Test func `host driven activation renders only active skills and no activation tool`()
+    async throws
+  {
+    let activations = SkillActivations()
+    activations.activate("alpha")
+    let model = MockModel(textResponse: "ok", tokenCount: 1)
+    let profile = MultiSkillProfile(
+      activations: activations,
+      instructions: nil,
+      activationPolicy: .hostDriven,
+      skills: [
+        Skill(name: "alpha", description: "alpha description") {
+          Instructions("alpha instructions")
+          NoopTool()
+        },
+        Skill(name: "beta", description: "beta description", instructions: "beta instructions"),
+        Skill(name: "gamma", description: "gamma description", prompt: "gamma prompt")
+      ]
+    ).model(model)
+    let session = LanguageModelSession(profile: profile)
+    let _ = try await session.respond(to: "...")
+    let instructions = session.transcript.first?.instructions
+    let instructionsText = instructions?.segments.compactMap(\.text).joined(separator: "\n")
+    let toolNames = instructions?.toolDefinitions.map(\.name)
+
+    #expect(
+      instructionsText == """
+        Skill: alpha [active]
+        alpha instructions
+        """
+    )
+    #expect(toolNames == ["noop"])
+    #expect(activations.isActive("alpha"))
+    #expect(!activations.isActive("beta"))
+  }
+
+  @Test func `host driven activation retains explicit leading instructions`() async throws {
+    let activations = SkillActivations()
+    activations.activate("alpha")
+    let instructionsText = try await renderSkillsInstructions(
+      activations: activations,
+      instructions: Instructions("host context"),
+      activationPolicy: .hostDriven
+    ) {
+      Skill(name: "alpha", description: "alpha description", instructions: "alpha instructions")
+    }
+    #expect(
+      instructionsText == """
+        host context
+
+        Skill: alpha [active]
+        alpha instructions
+        """
+    )
+  }
+
   // MARK: - Degenerate schema
 
   @Test func `empty skills collection does not trap building the tool schema`() async throws {
@@ -415,7 +492,7 @@ struct SkillsTests {
     // choice list trapped here on every generation. The tool now falls back
     // to an unconstrained string argument for its `skill` parameter, and a
     // generation turn completes normally.
-    let instructionsText = try await renderSkillsInstructions { }
+    let instructionsText = try await renderSkillsInstructions {}
     #expect(instructionsText != nil)
   }
 }
@@ -428,12 +505,14 @@ struct SkillsTests {
 private func renderSkillsInstructions(
   activations: SkillActivations = SkillActivations(),
   instructions: Instructions? = nil,
+  activationPolicy: SkillActivationPolicy = .modelDriven,
   @SkillsBuilder skills: () -> [Skill]
 ) async throws -> String? {
   let model = MockModel(textResponse: "ok", tokenCount: 1)
   let profile = MultiSkillProfile(
     activations: activations,
     instructions: instructions,
+    activationPolicy: activationPolicy,
     skills: skills()
   ).model(model)
   let session = LanguageModelSession(profile: profile)
@@ -444,11 +523,17 @@ private func renderSkillsInstructions(
 private struct MultiSkillProfile: LanguageModelSession.DynamicProfile {
   let activations: SkillActivations
   let instructions: Instructions?
+  var activationPolicy: SkillActivationPolicy = .modelDriven
   let skills: [Skill]
 
   var body: some DynamicProfile {
     Profile {
-      Skills(activations: activations, instructions: instructions, skills: skills)
+      Skills(
+        activations: activations,
+        instructions: instructions,
+        activationPolicy: activationPolicy,
+        skills: skills
+      )
     }
   }
 }

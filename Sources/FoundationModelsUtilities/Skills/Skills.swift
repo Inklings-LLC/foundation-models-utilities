@@ -11,6 +11,19 @@
 //===----------------------------------------------------------------------===//
 public import FoundationModels
 
+/// Selects who may change the active-skill set.
+///
+/// Model-driven activation preserves the original `Skills` behavior: the
+/// model sees the activation guidance and a constrained activation tool.
+/// Host-driven activation is for apps that own activation from deterministic
+/// state. It renders only active instruction-based skills and exposes no
+/// activation guidance or activation tool, so the model cannot undo the
+/// host's decision.
+public enum SkillActivationPolicy: Equatable, Sendable {
+  case modelDriven
+  case hostDriven
+}
+
 /// A dynamic instructions component that manages a collection of `Skill`
 /// values, exposing them to the model as a tool it can call to toggle
 /// individual skills on and off.
@@ -65,13 +78,27 @@ public struct Skills: DynamicInstructions {
 
   private let toolDescription: String?
 
-  private let instructions: Instructions
+  private let instructions: Instructions?
 
   private let skills: [Skill]
 
   private let strictSchema: Bool
 
+  private let activationPolicy: SkillActivationPolicy
+
   private let activations: SkillActivations
+
+  private var renderedSkills: [Skill] {
+    guard activationPolicy == .hostDriven else {
+      return skills
+    }
+    return skills.filter { skill in
+      guard case .instructions = skill.storage else {
+        return false
+      }
+      return activations.isActive(skill.name)
+    }
+  }
 
   /// Creates a skills container using a result-builder closure.
   ///
@@ -88,6 +115,9 @@ public struct Skills: DynamicInstructions {
   ///   - strictSchema: When `true`, the tool schema only lists skills that
   ///     are valid targets for the current toggle direction, preventing the
   ///     model from deactivating already-inactive skills or vice versa.
+  ///   - activationPolicy: Who may change the active-skill set. Host-driven
+  ///     activation exposes only active instruction-based skills and omits
+  ///     the activation guidance and tool. Defaults to model-driven behavior.
   ///   - skills: A ``SkillsBuilder`` closure that produces the array of
   ///     skills to manage.
   public init(
@@ -96,6 +126,7 @@ public struct Skills: DynamicInstructions {
     toolDescription: String? = nil,
     instructions: Instructions? = nil,
     strictSchema: Bool = false,
+    activationPolicy: SkillActivationPolicy = .modelDriven,
     @SkillsBuilder skills: () -> [Skill]
   ) {
     self.init(
@@ -104,6 +135,7 @@ public struct Skills: DynamicInstructions {
       toolDescription: toolDescription,
       instructions: instructions,
       strictSchema: strictSchema,
+      activationPolicy: activationPolicy,
       skills: skills()
     )
   }
@@ -123,6 +155,9 @@ public struct Skills: DynamicInstructions {
   ///   - strictSchema: When `true`, the tool schema only lists skills that
   ///     are valid targets for the current toggle direction, preventing the
   ///     model from deactivating already-inactive skills or vice versa.
+  ///   - activationPolicy: Who may change the active-skill set. Host-driven
+  ///     activation exposes only active instruction-based skills and omits
+  ///     the activation guidance and tool. Defaults to model-driven behavior.
   ///   - skills: The array of skills to manage.
   public init(
     activations: SkillActivations,
@@ -130,23 +165,29 @@ public struct Skills: DynamicInstructions {
     toolDescription: String? = nil,
     instructions: Instructions? = nil,
     strictSchema: Bool = false,
+    activationPolicy: SkillActivationPolicy = .modelDriven,
     skills: [Skill]
   ) {
     self.activations = activations
     self.toolName = toolName
     self.toolDescription = toolDescription
-    self.instructions = instructions ?? Skills.defaultInstructions
+    self.instructions =
+      instructions
+      ?? (activationPolicy == .modelDriven ? Skills.defaultInstructions : nil)
     self.skills = skills
     self.strictSchema = strictSchema
+    self.activationPolicy = activationPolicy
   }
 
   /// The dynamic instructions body that renders each skill's status and
   /// provides the toggle tool to the model.
   public var body: some DynamicInstructions {
 
-    instructions
+    if let instructions {
+      instructions
+    }
 
-    DynamicInstructions.ForEach(Array(skills.enumerated()), id: \.element.name) { item in
+    DynamicInstructions.ForEach(Array(renderedSkills.enumerated()), id: \.element.name) { item in
       // Each skill is preceded by a blank line so the leading instruction and
       // every skill block are visually separated.
       let skill = item.element
@@ -155,16 +196,16 @@ public struct Skills: DynamicInstructions {
         // shown whether each one is currently active or inactive.
         if activations.isActive(skill.name) {
           Instructions {
-            "\nSkill: \(skill.name) [active]"
+            "\(instructions == nil && item.offset == 0 ? "" : "\n")Skill: \(skill.name) [active]"
           }
           stored.instructions
-        } else {
+        } else if activationPolicy == .modelDriven {
           Instructions {
             "\nSkill: \(skill.name) [inactive]"
             "Description: \(skill.description)"
           }
         }
-      } else {
+      } else if activationPolicy == .modelDriven {
         // Prompt-based skills are one-shot: invoking one injects its content
         // as tool output rather than toggling a persistent mode. We label them
         // as on-demand so the model isn't told they're "inactive" after it has
@@ -176,29 +217,31 @@ public struct Skills: DynamicInstructions {
       }
     }
 
-    ToggleSkillTool(
-      name: toolName,
-      description: toolDescription,
-      skills: skills,
-      activations: activations,
-      strictSchema: strictSchema,
-      onCall: { [activations] skill in
-        switch skill.storage {
-        case .prompt:
-          // On-demand: fire the activation callback, but don't track the skill
-          // as active — there's no persistent state to toggle off later.
-          skill.activate()
-        case .instructions:
-          if activations.isActive(skill.name) {
-            activations.deactivate(skill.name)
-            skill.deactivate()
-          } else {
-            activations.activate(skill.name)
+    if activationPolicy == .modelDriven {
+      ToggleSkillTool(
+        name: toolName,
+        description: toolDescription,
+        skills: skills,
+        activations: activations,
+        strictSchema: strictSchema,
+        onCall: { [activations] skill in
+          switch skill.storage {
+          case .prompt:
+            // On-demand: fire the activation callback, but don't track the skill
+            // as active — there's no persistent state to toggle off later.
             skill.activate()
+          case .instructions:
+            if activations.isActive(skill.name) {
+              activations.deactivate(skill.name)
+              skill.deactivate()
+            } else {
+              activations.activate(skill.name)
+              skill.activate()
+            }
           }
         }
-      }
-    )
+      )
+    }
   }
 }
 
@@ -226,13 +269,21 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
     }).contains(where: \.allowsDeactivation)
 
     let activeNames = Set(activations.activeSkillNames)
+    var allowed = skills.map(\.name).filter { !activeNames.contains($0) }
 
-    var allowed =
-      skills
-      .map(\.name)
-      .filter { !activeNames.contains($0) }
-
-    if !strictSchema || allowsDeactivation {
+    if strictSchema {
+      allowed += skills.compactMap { skill in
+        guard activeNames.contains(skill.name),
+          case .instructions(let stored) = skill.storage,
+          stored.allowsDeactivation
+        else {
+          return nil
+        }
+        return skill.name
+      }
+    } else {
+      // Preserve the original broad schema when strict decoding is disabled.
+      // `call(arguments:)` still enforces each skill's deactivation policy.
       allowed += activeNames
     }
     allowed.sort()
@@ -315,13 +366,20 @@ private struct ToggleSkillTool: @unchecked Sendable, Tool {
       )
     }
 
-    defer { onCall(skill) }
-
     switch skill.storage {
     case .prompt(let promptSkill):
+      defer { onCall(skill) }
       return promptSkill.prompt
-    case .instructions:
+    case .instructions(let stored):
       let activated = activations.isActive(skill.name)
+      guard !activated || stored.allowsDeactivation else {
+        throw GeneratedContent.ParsingError(
+          rawContent: arguments.jsonString,
+          debugDescription:
+            "Skill '\(skill.name)' is already active and does not allow deactivation."
+        )
+      }
+      defer { onCall(skill) }
       let verb = activated ? "deactivated" : "activated"
       return Prompt { "Successfully \(verb) skill: \(skill.name)" }
     }
