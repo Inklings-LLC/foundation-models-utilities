@@ -58,7 +58,7 @@ struct RollingWindowTests {
   }
 
   @Test
-  func `splits a prompt-response pair when the window is even`() async throws {
+  func `keeps a complete newest turn when the raw suffix would orphan a response`() async throws {
     let model = MockModel(textResponse: "OK", tokenCount: 1)
     let session = LanguageModelSession(profile: WindowedProfile(windowSize: 2).model(model))
 
@@ -67,17 +67,79 @@ struct RollingWindowTests {
     let _ = try await session.respond(to: "third")
     let _ = try await session.respond(to: "fourth")
 
-    // The naive suffix(2) trim repeatedly cuts between a prompt and its
-    // response, so the window starts with an orphaned response. This documents
-    // the (buggy) naive outcome; in practice it crashes partway through.
+    // The rolling ceiling admits only complete turns. A raw suffix(2) would
+    // retain the prior response plus the current prompt at the fourth onPrompt
+    // hook, creating an orphaned response. Instead that old turn is removed as
+    // a unit and the current prompt/response pair stays valid.
     #expect(
       session.transcriptSummary == [
         .instructions,
-        .response("OK"),
         .prompt("fourth"),
         .response("OK")
       ]
     )
+  }
+
+  @Test
+  func `whole-turn suffix keeps a complete tool loop or removes it as a unit`() {
+    let first = prompt("first")
+    let toolCall = toolCalls()
+    let toolResult = toolOutput()
+    let answer = response("done")
+    let current = prompt("second")
+    let history = [first, toolCall, toolResult, answer, current]
+
+    #expect(
+      wholeTurnSuffix(of: history, preferredMaximumEntries: 5) == history
+    )
+    #expect(
+      wholeTurnSuffix(of: history, preferredMaximumEntries: 4) == [current]
+    )
+  }
+
+  @Test
+  func `current tool continuation is indivisible even above the preferred ceiling`() {
+    let currentTurn = [
+      prompt("look this up"),
+      response("one moment"),
+      toolCalls(),
+      toolOutput()
+    ]
+
+    #expect(
+      wholeTurnSuffix(of: currentTurn, preferredMaximumEntries: 1) == currentTurn
+    )
+  }
+
+  private func prompt(_ text: String) -> Transcript.Entry {
+    .prompt(Transcript.Prompt(
+      segments: [.text(Transcript.TextSegment(content: text))]
+    ))
+  }
+
+  private func response(_ text: String) -> Transcript.Entry {
+    .response(Transcript.Response(
+      assetIDs: [],
+      segments: [.text(Transcript.TextSegment(content: text))]
+    ))
+  }
+
+  private func toolCalls() -> Transcript.Entry {
+    .toolCalls(Transcript.ToolCalls(
+      [Transcript.ToolCall(
+        id: "call-1",
+        toolName: "probe",
+        arguments: GeneratedContent(properties: [:])
+      )]
+    ))
+  }
+
+  private func toolOutput() -> Transcript.Entry {
+    .toolOutput(Transcript.ToolOutput(
+      id: "call-1",
+      toolName: "probe",
+      segments: [.text(Transcript.TextSegment(content: "result"))]
+    ))
   }
 }
 
