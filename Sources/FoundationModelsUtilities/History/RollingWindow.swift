@@ -91,29 +91,59 @@ private struct RollingWindowModifier: LanguageModelSession.DynamicProfileModifie
   }
 }
 
-/// Applies the rolling entry ceiling without retaining an orphaned response,
-/// tool call, or tool output. A Foundation Models turn starts at a `.prompt`
-/// and continues through every response/tool exchange up to the next prompt.
+/// Returns the newest complete conversation turns of `entries` that fit a soft
+/// entry ceiling, never retaining an orphaned response, tool call, or tool
+/// output. A Foundation Models turn starts at a `.prompt` and continues through
+/// every response/tool exchange up to the next prompt, so admitting whole turns
+/// only keeps the projection structurally valid.
 ///
-/// `onPrompt` can also run while a tool continuation is active. The suffix
-/// from the last prompt is therefore the current turn and is indivisible even
-/// when it alone exceeds the preferred ceiling. Older turns are retained only
-/// when each complete turn fits. Any malformed leading entries before the
-/// oldest retained prompt are deliberately discarded rather than promoted to
-/// a structurally invalid history root.
-func wholeTurnSuffix(
+/// This helper is shared by two mechanisms. The mutating ``rollingWindow(size:)``
+/// modifier calls it from `onPrompt`, which can also run while a tool
+/// continuation is active — the suffix from the last prompt is the current turn
+/// and is indivisible. A non-mutating history view (see ``HistoryView``) can
+/// call it to project a bounded window without touching stored history. Older
+/// turns are admitted newest-first only when each complete turn fits. Any
+/// malformed leading entries before the oldest retained prompt are deliberately
+/// discarded rather than promoted to a structurally invalid history root.
+///
+/// - Parameters:
+///   - entries: The conversation entries to window, in transcript order.
+///   - preferredMaximumEntries: The soft entry ceiling. Older complete turns
+///     are admitted newest-first only while the running total stays at or below
+///     this count. Negative values are treated as zero.
+///   - allowsNewestTurnToExceedMaximum: When `true` (the default), the newest
+///     turn is indivisible and is always retained in full even if it alone
+///     exceeds `preferredMaximumEntries` — the posture the mutating modifier
+///     needs so `onPrompt` never hands the framework an orphaned suffix, and the
+///     posture a settled-history projection needs so the most recent completed
+///     turn survives whole. When `false`, the newest turn is admitted only if it
+///     fits within the ceiling; otherwise the empty projection is returned. A
+///     live history view passes `false` for the *completed* portion because its
+///     separate in-flight suffix already carries the current turn, so completed
+///     history that does not fit is dropped entirely rather than overflowing the
+///     budget.
+/// - Returns: The retained whole-turn suffix, or an empty array when no prompt
+///   boundary is available (or, with `allowsNewestTurnToExceedMaximum` false,
+///   when even the newest turn overflows the ceiling).
+public func wholeTurnSuffix(
   of entries: [Transcript.Entry],
-  preferredMaximumEntries: Int
+  preferredMaximumEntries: Int,
+  allowsNewestTurnToExceedMaximum: Bool = true
 ) -> [Transcript.Entry] {
-  guard let currentTurnStart = entries.lastIndex(where: { entry in
-    if case .prompt = entry { return true }
-    return false
-  }) else {
+  let preferredMaximumEntries = max(0, preferredMaximumEntries)
+  guard preferredMaximumEntries > 0 || allowsNewestTurnToExceedMaximum,
+        let currentTurnStart = entries.lastIndex(where: { entry in
+          if case .prompt = entry { return true }
+          return false
+        }) else {
     return []
   }
 
-  let preferredMaximumEntries = max(0, preferredMaximumEntries)
   var retained = Array(entries[currentTurnStart...])
+  guard retained.count <= preferredMaximumEntries
+          || allowsNewestTurnToExceedMaximum else {
+    return []
+  }
   var nextTurnStart = currentTurnStart
 
   while let previousTurnStart = entries[..<nextTurnStart].lastIndex(where: { entry in
