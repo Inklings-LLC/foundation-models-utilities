@@ -343,23 +343,24 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
           }
         }
 
-        // Send usage AFTER content so the authoritative cumulative total
-        // overwrites any tokens credited by `appendText` for this chunk.
+        // BETA4-SHIM (2026-07-20): FoundationModels'
+        // `LanguageModelExecutorGenerationChannel.Response.Action.updateUsage(input:output:)`
+        // — demangled `static ...GenerationChannel.Response.Action.updateUsage(input:output:)`,
+        // mangled `_$s16FoundationModels38LanguageModelExecutorGenerationChannelV8ResponseV6ActionV11updateUsage5input6outputAgC0K0V5InputV_AL6OutputVtFZ`
+        // — was removed/changed in iOS 27 beta 4 (device build 24A5390f) relative
+        // to the Xcode 27A5218g iphoneos SDK (build 24A5380g) this app links
+        // against. The missing symbol fails to bind at dyld load and crashes the
+        // host app on launch. The call is EXCISED so no reference to that symbol
+        // remains in the linked binary. Usage accounting is LOUDLY degraded here
+        // — the real provider totals are logged, never silently zeroed — until a
+        // matching beta-4 SDK is available and this shim is reverted.
         if let usage = chunk.usage {
-          await channel.send(
-            .response(
-              entryID: responseEntryID,
-              action: .updateUsage(
-                input: .init(
-                  totalTokenCount: usage.promptTokens,
-                  cachedTokenCount: usage.promptTokensDetails?.cachedTokens ?? 0
-                ),
-                output: .init(
-                  totalTokenCount: usage.completionTokens,
-                  reasoningTokenCount: usage.completionTokensDetails?.reasoningTokens ?? 0
-                )
-              )
-            )
+          debugPrint(
+            "BETA4-SHIM: usage accounting unavailable on this SDK/OS pair — dropping ChatCompletions token report",
+            "inputTotalTokens", usage.promptTokens,
+            "inputCachedTokens", usage.promptTokensDetails?.cachedTokens ?? 0,
+            "outputTotalTokens", usage.completionTokens,
+            "outputReasoningTokens", usage.completionTokensDetails?.reasoningTokens ?? 0
           )
         }
       }
