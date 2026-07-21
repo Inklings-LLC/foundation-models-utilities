@@ -310,11 +310,15 @@ public struct ChatCompletionsLanguageModel: Sendable, LanguageModel {
 
           if let toolCallDeltas = delta.toolCalls {
             for toolCallDelta in toolCallDeltas {
-              let existing = toolCallRouting[toolCallDelta.index] ?? (id: "", name: "")
-              let routing = (
-                id: existing.id + (toolCallDelta.id ?? ""),
-                name: existing.name + (toolCallDelta.function?.name ?? "")
-              )
+              var routing = toolCallRouting[toolCallDelta.index] ?? (id: "", name: "")
+              if routing.id.isEmpty, let identifier = toolCallDelta.id {
+                routing.id = identifier
+              }
+              routing.name += toolCallDelta.function?.name ?? ""
+
+              if routing.id.isEmpty, !routing.name.isEmpty {
+                routing.id = "call_\(toolCallDelta.index)"
+              }
               toolCallRouting[toolCallDelta.index] = routing
 
               guard !routing.id.isEmpty, !routing.name.isEmpty else { continue }
@@ -606,7 +610,9 @@ private struct ChatCompletionsClient {
           let urlRequest = try buildURLRequest(for: request)
           #if canImport(Darwin)
           let (stream, response) = try await session.bytes(for: urlRequest)
-          let httpResponse = response as! HTTPURLResponse
+          guard let httpResponse = response as? HTTPURLResponse else {
+            throw ChatCompletionsLanguageModel.RequestError.invalidStreamData
+          }
 
           guard httpResponse.statusCode == 200 else {
             throw ChatCompletionsLanguageModel.RequestError.httpError(
@@ -624,7 +630,9 @@ private struct ChatCompletionsClient {
           continuation.finish()
           #else
           let (data, response) = try await session.data(for: urlRequest)
-          let httpResponse = response as! HTTPURLResponse
+          guard let httpResponse = response as? HTTPURLResponse else {
+            throw ChatCompletionsLanguageModel.RequestError.invalidStreamData
+          }
 
           guard httpResponse.statusCode == 200 else {
             throw ChatCompletionsLanguageModel.RequestError.httpError(

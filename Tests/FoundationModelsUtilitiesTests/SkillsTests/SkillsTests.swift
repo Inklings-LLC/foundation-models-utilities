@@ -12,11 +12,37 @@
 @testable import FoundationModelsUtilities
 import FoundationModels
 import Foundation
+import Observation
 import Testing
 import Synchronization
 
 @Suite
 struct SkillsTests {
+  @Test func `activation changes notify observers only once`() {
+    let activations = SkillActivations()
+    let notificationCount = Mutex(0)
+
+    func observeActivations() {
+      withObservationTracking {
+        _ = activations.activeSkillNames
+      } onChange: {
+        notificationCount.withLock { $0 += 1 }
+      }
+    }
+
+    observeActivations()
+    activations.activate("foo")
+    #expect(notificationCount.withLock { $0 } == 1)
+
+    observeActivations()
+    activations.activate("foo")
+    #expect(notificationCount.withLock { $0 } == 1)
+
+    observeActivations()
+    activations.deactivate("bar")
+    #expect(notificationCount.withLock { $0 } == 1)
+  }
+
   @Test func `prompt skill activation`() async throws {
     let model = SkillsMockModel(activatingSkill: "foo")
     let session = LanguageModelSession(profile: ActivatableProfile().model(model))

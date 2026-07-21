@@ -19,10 +19,12 @@ import FoundationNetworking
 final class MockSSEProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var handler: ((URLRequest) -> (statusCode: Int, data: Data))?
   nonisolated(unsafe) static var lastRequest: URLRequest?
+  nonisolated(unsafe) static var responseFactory: ((URLRequest) -> URLResponse)?
 
   static func reset() {
     handler = nil
     lastRequest = nil
+    responseFactory = nil
   }
 
   override class func canInit(with request: URLRequest) -> Bool {
@@ -51,8 +53,8 @@ final class MockSSEProtocol: URLProtocol, @unchecked Sendable {
     }
     Self.lastRequest = normalizedRequest
     let (statusCode, data) = Self.handler?(normalizedRequest) ?? (200, Data())
-    let response = HTTPURLResponse(
-      url: request.url!,
+    let response = Self.responseFactory?(request) ?? HTTPURLResponse(
+      url: request.url ?? URL.temporaryDirectory,
       statusCode: statusCode,
       httpVersion: "HTTP/1.1",
       headerFields: ["Content-Type": "text/event-stream"],
@@ -157,6 +159,27 @@ enum MockSSE {
     var lines = [String]()
     lines.append(
       #"data: {"id":"1","model":"mock","choices":[{"delta":{"tool_calls":[{"index":0,"id":"\#(id)","type":"function","function":{"name":"\#(name)","arguments":""}}]}}]}"#
+    )
+    lines.append("")
+    for chunk in argumentChunks {
+      let escaped = jsonEscape(chunk)
+      lines.append(
+        #"data: {"id":"1","model":"mock","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\#(escaped)"}}]}}]}"#
+      )
+      lines.append("")
+    }
+    lines.append("data: [DONE]")
+    lines.append("")
+    return Data(lines.joined(separator: "\n").utf8)
+  }
+
+  static func toolCallWithoutIdentifier(
+    name: String,
+    argumentChunks: [String]
+  ) -> Data {
+    var lines = [String]()
+    lines.append(
+      #"data: {"id":"1","model":"mock","choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"\#(name)","arguments":""}}]}}]}"#
     )
     lines.append("")
     for chunk in argumentChunks {
