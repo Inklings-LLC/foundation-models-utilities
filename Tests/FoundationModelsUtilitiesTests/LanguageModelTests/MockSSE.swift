@@ -171,6 +171,27 @@ enum MockSSE {
     return Data(lines.joined(separator: "\n").utf8)
   }
 
+  static func toolCallWithoutIdentifier(
+    name: String,
+    argumentChunks: [String]
+  ) -> Data {
+    var lines = [String]()
+    lines.append(
+      #"data: {"id":"1","model":"mock","choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"\#(name)","arguments":""}}]}}]}"#
+    )
+    lines.append("")
+    for chunk in argumentChunks {
+      let escaped = jsonEscape(chunk)
+      lines.append(
+        #"data: {"id":"1","model":"mock","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\#(escaped)"}}]}}]}"#
+      )
+      lines.append("")
+    }
+    lines.append("data: [DONE]")
+    lines.append("")
+    return Data(lines.joined(separator: "\n").utf8)
+  }
+
   static func parallelToolCalls(
     _ calls: [(id: String, name: String, arguments: String)]
   ) -> Data {

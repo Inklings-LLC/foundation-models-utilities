@@ -86,6 +86,27 @@ extension ChatCompletionsTests {
       #expect(calls[0].toolName == "get_weather")
     }
 
+    @Test func `parses a tool call when the stream omits its identifier`() async throws {
+      MockSSEProtocol.handler = MockSSE.toolCallThenText(
+        toolCallData: MockSSE.toolCallWithoutIdentifier(
+          name: "get_weather",
+          argumentChunks: [#"{"location":"San Francisco"}"#]
+        ),
+        textResponse: "Done"
+      )
+
+      let session = LanguageModelSession(
+        model: makeMockModel(),
+        tools: [MockWeatherTool()]
+      )
+      let _ = try await session.respond(to: "Weather?")
+
+      let calls = try #require(session.transcript.compactMap(\.toolCalls).first)
+      #expect(calls.count == 1)
+      #expect(calls.first?.toolName == "get_weather")
+      #expect(session.transcript.responseText == "Done")
+    }
+
     @Test func `parses parallel tool calls`() async throws {
       MockSSEProtocol.handler = MockSSE.toolCallThenText(
         toolCallData: MockSSE.parallelToolCalls([
