@@ -55,5 +55,31 @@ extension ChatCompletionsTests {
         try await session.respond(to: "test")
       }
     }
+
+    @Test func `throws instead of trapping on a non-HTTP response`() async throws {
+      MockSSEProtocol.handler = { _ in
+        (200, MockSSE.text("OK"))
+      }
+      MockSSEProtocol.responseFactory = { request in
+        URLResponse(
+          url: request.url ?? URL.temporaryDirectory,
+          mimeType: "text/event-stream",
+          expectedContentLength: 0,
+          textEncodingName: nil
+        )
+      }
+
+      let session = LanguageModelSession(model: makeMockModel())
+      await #expect(throws: ChatCompletionsLanguageModel.RequestError.self) {
+        do {
+          let _ = try await session.respond(to: "test")
+        } catch let error as ChatCompletionsLanguageModel.RequestError {
+          guard case .invalidStreamData = error else {
+            throw error
+          }
+          throw error
+        }
+      }
+    }
   }
 }

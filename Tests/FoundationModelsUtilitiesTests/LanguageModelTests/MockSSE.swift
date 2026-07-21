@@ -19,10 +19,12 @@ import FoundationNetworking
 final class MockSSEProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var handler: ((URLRequest) -> (statusCode: Int, data: Data))?
   nonisolated(unsafe) static var lastRequest: URLRequest?
+  nonisolated(unsafe) static var responseFactory: ((URLRequest) -> URLResponse)?
 
   static func reset() {
     handler = nil
     lastRequest = nil
+    responseFactory = nil
   }
 
   override class func canInit(with request: URLRequest) -> Bool {
@@ -51,8 +53,8 @@ final class MockSSEProtocol: URLProtocol, @unchecked Sendable {
     }
     Self.lastRequest = normalizedRequest
     let (statusCode, data) = Self.handler?(normalizedRequest) ?? (200, Data())
-    let response = HTTPURLResponse(
-      url: request.url!,
+    let response = Self.responseFactory?(request) ?? HTTPURLResponse(
+      url: request.url ?? URL.temporaryDirectory,
       statusCode: statusCode,
       httpVersion: "HTTP/1.1",
       headerFields: ["Content-Type": "text/event-stream"],
