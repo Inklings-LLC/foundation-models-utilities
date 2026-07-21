@@ -79,6 +79,18 @@ struct RollingWindowTests {
       ]
     )
   }
+
+  @Test func `clamps nonpositive windows to preserve the active prompt`() async throws {
+    for windowSize in [0, -1] {
+      let model = MockModel(textResponse: "OK", tokenCount: 1)
+      let session = LanguageModelSession(profile: WindowedProfile(windowSize: windowSize).model(model))
+
+      let _ = try await session.respond(to: "first")
+
+      #expect(session.transcriptSummary.contains(.prompt("first")))
+      #expect(session.transcriptSummary.contains(.response("OK")))
+    }
+  }
 }
 
 private struct WindowedProfile: LanguageModelSession.DynamicProfile {

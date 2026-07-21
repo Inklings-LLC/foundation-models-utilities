@@ -30,7 +30,8 @@ extension LanguageModelSession.DynamicProfile {
   /// ```
   ///
   /// - Parameter entries: The maximum number of transcript entries to
-  ///   retain. Older entries beyond this count are dropped.
+  ///   retain. Older entries beyond this count are dropped. Values smaller
+  ///   than one retain the in-flight prompt.
   /// - Returns: A profile that trims its transcript to the specified window
   ///   size before each generation.
   public func rollingWindow(entries: Int) -> some DynamicProfile {
@@ -76,10 +77,14 @@ private struct RollingWindowModifier: LanguageModelSession.DynamicProfileModifie
     content.onPrompt {
       switch size {
       case .entries(let numberOfEntries):
-        history = history.suffix(numberOfEntries)
+        history = history.suffix(max(RollingWindowLimits.minimumEntryCount, numberOfEntries))
       }
     }
   }
+}
+
+private enum RollingWindowLimits {
+  static let minimumEntryCount = 1
 }
 
 /// A strategy to determine how the transcript window size is measured.
