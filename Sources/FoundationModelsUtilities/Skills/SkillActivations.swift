@@ -27,20 +27,25 @@ public final class SkillActivations: Sendable, Observable {
   public init() {}
 
   public func activate(_ name: String) {
-    _registrar.withMutation(of: self, keyPath: \.activeSkillNames) {
-      _names.withLock { names in
-        guard !names.contains(name) else { return }
-        names.append(name)
-      }
+    let didActivate = _names.withLock { names in
+      guard !names.contains(name) else { return false }
+      names.append(name)
+      return true
     }
+    guard didActivate else { return }
+
+    _registrar.withMutation(of: self, keyPath: \.activeSkillNames) {}
   }
 
   public func deactivate(_ name: String) {
-    _registrar.withMutation(of: self, keyPath: \.activeSkillNames) {
-      _names.withLock { names in
-        names.removeAll(where: { $0 == name })
-      }
+    let didDeactivate = _names.withLock { names in
+      guard let index = names.firstIndex(of: name) else { return false }
+      names.remove(at: index)
+      return true
     }
+    guard didDeactivate else { return }
+
+    _registrar.withMutation(of: self, keyPath: \.activeSkillNames) {}
   }
 
   /// Returns whether the skill with the given name is currently active.
